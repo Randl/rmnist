@@ -12,7 +12,11 @@ consider validation and test data separately.
 
 # Standard library
 from __future__ import print_function, division
-import cPickle
+
+try:
+    import cPickle as pickle
+except:
+    import pickle
 import gzip
 
 # My libraries
@@ -24,8 +28,7 @@ from PIL import Image
 import torch
 from torch.autograd import Variable
 from torch.utils.data import Dataset
-from torchvision import datasets, models, transforms
-
+from torchvision import models, transforms
 
 # Configuration: use expanded training data or not
 expanded = False
@@ -35,36 +38,39 @@ net = models.resnet18(pretrained=True)
 for param in net.parameters():
     param.requires_grad = False
 
+
 def forward_partial(model, x):
     x = model.conv1(x)
     x = model.bn1(x)
     x = model.relu(x)
     x = model.maxpool(x)
-    
+
     x = model.layer1(x)
     x = model.layer2(x)
     x = model.layer3(x)
     x = model.layer4(x)
-    
+
     x = model.avgpool(x)
     x = x.view(x.size(0), -1)
     return x
 
-class RMNIST(Dataset):
 
+class RMNIST(Dataset):
     def __init__(self, n=0, train=True, transform=None, expanded=False):
         self.n = n
         self.transform = transform
         td, vd, ts = data_loader.load_data(n, expanded=expanded)
-        if train: self.data = td
-        else: self.data = vd
-        
+        if train:
+            self.data = td
+        else:
+            self.data = vd
+
     def __len__(self):
         return len(self.data[0])
 
     def __getitem__(self, idx):
         data = self.data[0][idx]
-        img = (data*256)
+        img = (data * 256)
         img = img.reshape(28, 28)
         imgColor = np.zeros((28, 28, 3), 'uint8')
         imgColor[..., 0] = img
@@ -79,10 +85,10 @@ class RMNIST(Dataset):
 
 # Compute the abstract features for the validation data
 data_transform = transforms.Compose(
-    [transforms.Scale(224),
+    [transforms.Resize(224),
      transforms.ToTensor(),
      transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ])
+     ])
 data_loader_val = torch.utils.data.DataLoader(
     RMNIST(10, train=False, transform=data_transform), batch_size=100)
 data_val = list(data_loader_val)
@@ -105,8 +111,10 @@ for j in range(len(data_val)):
 for n in [1, 5, 10]:
     print("\nComputing features for n = {}".format(n))
     # Do everything in one batch
-    if not expanded: batch_size = n*10
-    else: batch_size = 9*n*10
+    if not expanded:
+        batch_size = n * 10
+    else:
+        batch_size = 9 * n * 10
     data_loader_train = torch.utils.data.DataLoader(
         RMNIST(n, transform=data_transform, expanded=expanded),
         batch_size=batch_size)
@@ -119,6 +127,5 @@ for n in [1, 5, 10]:
     else:
         name = "data/rmnist_abstract_features_{}.pkl.gz".format(n)
     f = gzip.open(name, 'wb')
-    cPickle.dump((td2, vd2, (0,0)), f)
+    pickle.dump((td2, vd2, (0, 0)), f)
     f.close()
-

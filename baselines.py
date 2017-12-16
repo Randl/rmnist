@@ -4,23 +4,25 @@
 Simple baselines for RMNIST, using sklearn.
 """
 
-#### Libraries
-# My libraries
-import data_loader 
-
 # Third-party libraries
 import sklearn
-import sklearn.svm
-import sklearn.neighbors
-import sklearn.tree
 import sklearn.ensemble
+import sklearn.neighbors
 import sklearn.neural_network
+import sklearn.svm
+import sklearn.tree
+
+#### Libraries
+# My libraries
+import data_loader
+
 
 def all_baselines():
     for n in [1, 5, 10, 0]:
-        print "\n\nUsing RMNIST/{}".format(n)
+        print("\n\nUsing RMNIST/{}".format(n))
         baselines(n)
-        
+
+
 def baselines(n):
     td, vd, ts = data_loader.load_data(n)
     classifiers = [
@@ -33,9 +35,8 @@ def baselines(n):
     ]
     for clf in classifiers:
         clf.fit(td[0], td[1])
-        print "\n{}: {}".format(type(clf).__name__, round(clf.score(vd[0], vd[1])*100, 2))
+        print("\n{}: {}".format(type(clf).__name__, round(clf.score(vd[0], vd[1]) * 100, 2)))
+
 
 if __name__ == "__main__":
     all_baselines()
-    
-

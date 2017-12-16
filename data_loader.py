@@ -9,14 +9,19 @@ RMNIST/1, RMNIST/5, and RMNIST/10.
 
 #### Libraries
 # Standard library
-import cPickle
+import sys
+
+try:
+    import cPickle as pickle
+except:
+    import pickle
 import gzip
 import random
 
-random.seed(619) # use a standard seed to make repeatable
+random.seed(619)  # use a standard seed to make repeatable
+
 
 # Third-party libraries
-import numpy as np
 
 def load_data(n=0, expanded=False, abstract=False):
     """Return the RMNIST/n data as a tuple containing the training data,
@@ -33,7 +38,7 @@ def load_data(n=0, expanded=False, abstract=False):
 
     """
     if not abstract:
-        if not expanded and n==0:
+        if not expanded and n == 0:
             name = "data/mnist.pkl.gz"
         if not expanded and n > 0:
             name = "data/rmnist_{}.pkl.gz".format(n)
@@ -52,18 +57,20 @@ def load_data(n=0, expanded=False, abstract=False):
         if expanded and n > 0:
             name = "data/rmnist_abstract_features_expanded_{}.pkl.gz".format(n)
     f = gzip.open(name, 'rb')
-    training_data, validation_data, test_data = cPickle.load(f)
+    training_data, validation_data, test_data = pickle.load(f) if sys.version_info[0] == 2 \
+        else pickle.load(f, encoding='latin1')
     f.close()
     return (training_data, validation_data, test_data)
+
 
 def make_rmnist(n=10):
     """Make a subset of MNIST using n training examples of each digit and
     save into data/rmnist_n.pkl.gz, together with the complete
     validation and test sets.
 
-    """ 
+    """
     td, vd, ts = load_data()
-    indices = range(50000)
+    indices = list(range(50000))
     random.shuffle(indices)
     values = [(j, td[1][j]) for j in indices]
     indices_subset = [[v[0] for v in values if v[1] == j][:n]
@@ -73,10 +80,11 @@ def make_rmnist(n=10):
     td0_prime = [td[0][j] for j in flattened_indices]
     td1_prime = [td[1][j] for j in flattened_indices]
     td_prime = (td0_prime, td1_prime)
-    f = gzip.open('data/rmnist_'+str(n)+'.pkl.gz', 'wb')
-    cPickle.dump((td_prime, vd, ts), f)
+    f = gzip.open('data/rmnist_' + str(n) + '.pkl.gz', 'wb')
+    pickle.dump((td_prime, vd, ts), f)
     f.close()
-    
+
+
 if __name__ == "__main__":
     make_rmnist(1)
     make_rmnist(5)

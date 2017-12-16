@@ -13,25 +13,25 @@ from __future__ import print_function
 import math
 import random
 
-# My library
-import data_loader
-
 # Third-party libraries
 import numpy as np
-from PIL import Image
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torchvision import datasets, transforms
+from PIL import Image
 from torch.autograd import Variable
 from torch.utils.data import Dataset
+from torchvision import transforms
+
+# My library
+import data_loader
 
 use_gpu = torch.cuda.is_available()
 
 # Configuration
-n = 10 # use RMNIST/n
-expanded = True # Whether or not to use expanded RMNIST training data
+n = 10  # use RMNIST/n
+expanded = True  # Whether or not to use expanded RMNIST training data
 if n == 0: epochs = 100
 if n == 1: epochs = 500
 if n == 5: epochs = 400
@@ -56,71 +56,83 @@ transform = transforms.Compose([
 # annealed --- performance will usually get better as we make this
 # larger, but it will also extend training time, so the annealing will
 # run slower and slower.
-params = {"weight_decay": 0.0001*(10**0.25), "lr": 0.1*(10**0.5), "nk1": 20, "nk2": 42, "ensemble_size": 20}
+params = {"weight_decay": 0.0001 * (10 ** 0.25), "lr": 0.1 * (10 ** 0.5), "nk1": 20, "nk2": 42, "ensemble_size": 20}
+
 
 # Define the annealing moves
 def weight_decay_up(params):
     trial = dict(params)
-    trial["weight_decay"] *= 10**0.25
+    trial["weight_decay"] *= 10 ** 0.25
     return trial
+
 
 def weight_decay_down(params):
     trial = dict(params)
-    trial["weight_decay"] /= 10**0.25
+    trial["weight_decay"] /= 10 ** 0.25
     return trial
+
 
 def lr_up(params):
     trial = dict(params)
-    trial["lr"] *= 10**0.25
+    trial["lr"] *= 10 ** 0.25
     return trial
+
 
 def lr_down(params):
     trial = dict(params)
-    trial["lr"] /= 10**0.25
+    trial["lr"] /= 10 ** 0.25
     return trial
+
 
 def k1_up(params):
     trial = dict(params)
     trial["nk1"] += 2
     return trial
 
+
 def k1_down(params):
     trial = dict(params)
     if trial["nk1"] > 2: trial["nk1"] -= 2
     return trial
+
 
 def k2_up(params):
     trial = dict(params)
     trial["nk2"] += 2
     return trial
 
+
 def k2_down(params):
     trial = dict(params)
     if trial["nk2"] > 2: trial["nk2"] -= 2
     return trial
 
+
 moves = [weight_decay_up, weight_decay_down, lr_up, lr_down, k1_up, k1_down, k2_up, k2_down]
 
-class RMNIST(Dataset):
 
+class RMNIST(Dataset):
     def __init__(self, n=0, train=True, transform=None, expanded=False):
         self.n = n
         self.transform = transform
         td, vd, ts = data_loader.load_data(n, expanded=expanded)
-        if train: self.data = td
-        else: self.data = vd
-        
+        if train:
+            self.data = td
+        else:
+            self.data = vd
+
     def __len__(self):
         return len(self.data[0])
 
     def __getitem__(self, idx):
         data = self.data[0][idx]
-        img = (data*256)
+        img = (data * 256)
         img = img.reshape(28, 28)
         img = Image.fromarray(np.uint8(img))
         if self.transform: img = self.transform(img)
         label = self.data[1][idx]
         return (img, label)
+
 
 train_dataset = RMNIST(n, train=True, transform=transform, expanded=expanded)
 train_loader = torch.utils.data.DataLoader(
@@ -132,15 +144,15 @@ validation_loader = torch.utils.data.DataLoader(
     validation_dataset, batch_size=100, shuffle=True)
 validation_data = list(validation_loader)
 
+
 class Net(nn.Module):
-    
     def __init__(self, activation, params):
         super(Net, self).__init__()
         ks1 = 7
         nk1 = params["nk1"]
         ks2 = 4
         nk2 = params["nk2"]
-        self.lin = (((((28-ks1+1)/2)-ks2+1)/2)**2)*nk2
+        self.lin = (((((28 - ks1 + 1) / 2) - ks2 + 1) / 2) ** 2) * nk2
         self.conv1 = nn.Conv2d(1, nk1, kernel_size=ks1)
         self.conv2 = nn.Conv2d(nk1, nk2, kernel_size=ks2)
         self.conv2_drop = nn.Dropout2d()
@@ -157,8 +169,10 @@ class Net(nn.Module):
         x = self.fc2(x)
         return F.log_softmax(x)
 
+
 def train(epoch, model):
-    optimizer = optim.SGD(model.parameters(), lr=params["lr"]*(0.8**(epoch/10+1)), momentum=momentum, weight_decay=params["weight_decay"])
+    optimizer = optim.SGD(model.parameters(), lr=params["lr"] * (0.8 ** (epoch / 10 + 1)), momentum=momentum,
+                          weight_decay=params["weight_decay"])
     model.train()
     for batch_idx, (data, target) in enumerate(training_data):
         if use_gpu:
@@ -171,6 +185,7 @@ def train(epoch, model):
         loss.backward()
         optimizer.step()
 
+
 def accept(model):
     """Return True if more than 20% of the validation data is being
     correctly classified. Used to avoid including nets which haven't
@@ -179,7 +194,7 @@ def accept(model):
     """
 
     accuracy = 0
-    for data, target in validation_data[:(500/100)]:
+    for data, target in validation_data[:(500 / 100)]:
         if use_gpu:
             data, target = Variable(data.cuda(), volatile=True), Variable(target.cuda())
         else:
@@ -187,9 +202,12 @@ def accept(model):
         output = model(data)
         pred = output.data.max(1, keepdim=True)[1]
         accuracy += pred.eq(target.data.view_as(pred)).cpu().sum()
-    if accuracy < 100: return False
-    else: return True
-    
+    if accuracy < 100:
+        return False
+    else:
+        return True
+
+
 def ensemble_accuracy(models):
     for model in models:
         model.eval()
@@ -206,6 +224,7 @@ def ensemble_accuracy(models):
         accuracy += pred.eq(target.data.view_as(pred)).cpu().sum()
     return accuracy
 
+
 def run():
     if use_gpu:
         models = [Net(F.relu, params).cuda() for j in range(params["ensemble_size"])]
@@ -220,8 +239,8 @@ def run():
         accuracy, 10000, 100. * accuracy / 10000))
     return accuracy
 
-def hash_dict(d):
 
+def hash_dict(d):
     """Construct a hash of the dict d. A problem with this kind of hashing
     is when the values are floats - the imprecision of floating point
     arithmetic mean that values will be regarded as different which
@@ -234,22 +253,26 @@ def hash_dict(d):
     l = []
     for k, v in d.items():
         if type(v) == float:
-            l.append((k, round(v*(10**8))))
+            l.append((k, round(v * (10 ** 8))))
         else:
             l.append((k, v))
     return hash(frozenset(l))
 
+
 def add_dict_to_cache(cache, d, value):
     cache[hash_dict(d)] = value
+
 
 def get_value_from_cache(cache, d):
     return cache[hash_dict(d)]
 
+
 def dict_in_cache(cache, d):
     return hash_dict(d) in cache
 
+
 energy_scale = 50
-cache = {} # To store accuracies for past hyper-parameter configurations
+cache = {}  # To store accuracies for past hyper-parameter configurations
 count = 0
 print("\nMove: {}".format(count))
 print("Initial params: {}".format(params))
@@ -257,12 +280,12 @@ accuracy = run()
 best_accuracy = accuracy
 best_params = params
 add_dict_to_cache(cache, params, accuracy)
-keep_going = False # flag to say whether or not the last move resulted
-                   # in an improvement in accuracy, and we should
-                   # repeat the move.  Not standard in simulated
-                   # annealing.
+keep_going = False  # flag to say whether or not the last move resulted
+# in an improvement in accuracy, and we should
+# repeat the move.  Not standard in simulated
+# annealing.
 while True:
-    if not keep_going: random_move = random.randint(0, len(moves)-1)
+    if not keep_going: random_move = random.randint(0, len(moves) - 1)
     count += 1
     print("\nMove: {}".format(count))
     print("Current accuracy: {}".format(accuracy))
@@ -280,7 +303,7 @@ while True:
         trial_accuracy = run()
         add_dict_to_cache(cache, trial_params, trial_accuracy)
     keep_going = (trial_accuracy > accuracy)
-    if random.random() < math.exp(-(accuracy-trial_accuracy)/energy_scale):
+    if random.random() < math.exp(-(accuracy - trial_accuracy) / energy_scale):
         print("Move accepted")
         params = trial_params
         accuracy = trial_accuracy
@@ -291,4 +314,3 @@ while True:
         best_params = params
     print("Best accuracy so far: {}".format(best_accuracy))
     print("Best params so far: {}".format(best_params))
-
