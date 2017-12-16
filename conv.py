@@ -31,12 +31,14 @@ if n == 1: epochs = 500
 if n == 5: epochs = 400
 if n == 10: epochs = 200
 # We decrease the learning rate by 20% every 10 epochs
+gamma = 0.2
 if n == 0:
     lr = 0.01
 else:
     lr = 0.1
 batch_size = 10
-momentum = 0.0
+momentum = 1e-6
+weight_decay = 1e-6
 mean_data_init = 0.1
 sd_data_init = 0.25
 seed = 1
@@ -111,8 +113,10 @@ model = Net()
 
 
 def train(epoch):
-    optimizer = optim.SGD(model.parameters(), lr=lr * ((0.8) ** (epoch / 10 + 1)), momentum=momentum)
-    # optimizer = optim.Adam(model.parameters(), lr=lr*0.1, weight_decay=1e-4)
+    optimizer = optim.SGD(model.parameters(),
+                          lr=lr * ((1-gamma) ** (epoch / 10 + 1)),
+                          momentum=momentum,
+                          weight_decay=weight_decay)
     model.train()
     for batch_idx, (data, target) in enumerate(training_data):
         data, target = Variable(data), Variable(target)
