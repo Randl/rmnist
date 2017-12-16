@@ -30,7 +30,7 @@ import data_loader
 use_gpu = torch.cuda.is_available()
 
 # Configuration
-n = 10  # use RMNIST/n
+n = 1  # use RMNIST/n
 expanded = True  # Whether or not to use expanded RMNIST training data
 if n == 0: epochs = 100
 if n == 1: epochs = 500
@@ -56,7 +56,10 @@ transform = transforms.Compose([
 # annealed --- performance will usually get better as we make this
 # larger, but it will also extend training time, so the annealing will
 # run slower and slower.
-params = {"weight_decay": 0.0001 * (10 ** 0.25), "lr": 0.1 * (10 ** 0.5), "nk1": 20, "nk2": 42, "ensemble_size": 20}
+params = {"weight_decay": 5e-4 * (10 ** 0.25),
+          "lr": 0.1 * (10 ** 0.5),
+          "nk1": 20, "nk2": 42, "nlin": 300,
+          "ensemble_size": 1}
 
 
 # Define the annealing moves
@@ -108,7 +111,19 @@ def k2_down(params):
     return trial
 
 
-moves = [weight_decay_up, weight_decay_down, lr_up, lr_down, k1_up, k1_down, k2_up, k2_down]
+
+def nlin_up(params):
+    trial = dict(params)
+    trial["nlin"] = int(1.1*trial["nlin"])
+    return trial
+
+
+def nlin_down(params):
+    trial = dict(params)
+    if trial["nlin"] > 10: trial["nlin"] = int(0.9*trial["nlin"])
+    return trial
+
+moves = [weight_decay_up, weight_decay_down, lr_up, lr_down, k1_up, k1_down, k2_up, k2_down, nlin_up, nlin_down]
 
 
 class RMNIST(Dataset):
@@ -144,6 +159,10 @@ validation_loader = torch.utils.data.DataLoader(
     validation_dataset, batch_size=100, shuffle=True)
 validation_data = list(validation_loader)
 
+def conv_out_size(in_size, kernel_size, stride = 1, padding =0, dilation=1):
+    return int(np.floor((in_size+2*padding-dilation*(kernel_size-1)-1)/stride+1))
+def conv_out_ceil_size(in_size, kernel_size, stride = 1, padding =0, dilation=1):
+    return int(np.ceil((in_size+2*padding-dilation*(kernel_size-1)-1)/stride+1))
 
 class Net(nn.Module):
     def __init__(self, activation, params):
@@ -152,21 +171,34 @@ class Net(nn.Module):
         nk1 = params["nk1"]
         ks2 = 4
         nk2 = params["nk2"]
-        self.lin = (((((28 - ks1 + 1) / 2) - ks2 + 1) / 2) ** 2) * nk2
-        self.conv1 = nn.Conv2d(1, nk1, kernel_size=ks1)
-        self.conv2 = nn.Conv2d(nk1, nk2, kernel_size=ks2)
-        self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(self.lin, 300)
-        self.fc2 = nn.Linear(300, 10)
+        nlin = params["nlin"]
+        self.conv1_out_size = conv_out_size(28, ks1)
+        self.mp1_out_size = conv_out_ceil_size(self.conv1_out_size , 3, stride=2)
+        self.conv2_out_size = conv_out_size( self.mp1_out_size, ks2)
+        self.mp2_out_size = conv_out_ceil_size(self.conv2_out_size, 3, stride=2)
+        self.lin = (self.mp2_out_size ** 2) * nk2
+
         self.activation = activation
+        self.conv = nn.Sequential(
+            nn.Conv2d(1, nk1, kernel_size=ks1),
+            nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True),
+            self.activation(inplace=True),
+            nn.Conv2d(nk1, nk2, kernel_size=ks2),
+            nn.Dropout2d(),
+            nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True),
+            self.activation(inplace=True),
+        )
+        self.fc = nn.Sequential(
+            nn.Linear(self.lin, nlin),
+            nn.Dropout(),
+            self.activation(inplace=True),
+            nn.Linear(nlin, 10)
+        )
 
     def forward(self, x):
-        x = self.activation(F.max_pool2d(self.conv1(x), 2))
-        x = self.activation(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
+        x = self.conv(x)
         x = x.view(-1, self.lin)
-        x = self.activation(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
+        x = self.fc(x)
         return F.log_softmax(x)
 
 
@@ -194,7 +226,7 @@ def accept(model):
     """
 
     accuracy = 0
-    for data, target in validation_data[:(500 / 100)]:
+    for data, target in validation_data[:(500 // 100)]:
         if use_gpu:
             data, target = Variable(data.cuda(), volatile=True), Variable(target.cuda())
         else:
@@ -227,9 +259,9 @@ def ensemble_accuracy(models):
 
 def run():
     if use_gpu:
-        models = [Net(F.relu, params).cuda() for j in range(params["ensemble_size"])]
+        models = [Net(nn.ReLU, params).cuda() for j in range(params["ensemble_size"])]
     else:
-        models = [Net(F.relu, params) for j in range(params["ensemble_size"])]
+        models = [Net(nn.ReLU, params) for j in range(params["ensemble_size"])]
     for j, model in enumerate(models):
         print("Training model: {}".format(j))
         for epoch in range(1, epochs + 1):
